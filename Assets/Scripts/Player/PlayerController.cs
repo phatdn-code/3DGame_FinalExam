@@ -1,26 +1,37 @@
-using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
 public class PlayerController : MonoBehaviour
 {
+    [Header("Component References")]
+    [SerializeField] private PlayerModel model; // Reference to the Model
+    [SerializeField] private PlayerView view;   // Reference to the View
+
+    [Header("Input Actions")]
     [SerializeField] private InputActionReference moveAction;
     [SerializeField] private InputActionReference jumpAction;
     [SerializeField] private InputActionReference aimAction;
-
-    public static event Action<Vector2> OnMoveInput;
-    public static event Action OnJumpRequested;
-    // public static event Action<Vector2> OnLookInput;
-    public static event Action<bool> OnAimInput;
+    [SerializeField] private InputActionReference lookAction;
 
     private void Update()
     {
-        var moveInput = moveAction.action.ReadValue<Vector2>();
-        OnMoveInput?.Invoke(moveInput);
+        if (model == null || view == null) return;
+        
+        // --- Read input and send commands ---
 
+        // Tell the Model how to move
+        model.SetMoveInput(moveAction.action.ReadValue<Vector2>());
+
+        // Tell the Model to try jumping
         if (jumpAction.action.triggered)
-            OnJumpRequested?.Invoke();
+        {
+            model.RequestJump();
+        }
 
-        OnAimInput?.Invoke(aimAction.action.IsPressed());
+        // Tell the Model if we are aiming
+        model.SetAiming(aimAction.action.IsPressed());
+        
+        // Tell the View how to orient the camera
+        view.UpdateLook(lookAction.action.ReadValue<Vector2>());
     }
 }

@@ -2,103 +2,123 @@ using UnityEngine;
 
 public class PlayerView : MonoBehaviour
 {
-    [Header("Animator")]
+    [Header("Component References")]
+    [SerializeField] private PlayerModel model; // Reference to the Model
     [SerializeField] private Animator animator;
-    private readonly int animMoveSpeed = Animator.StringToHash("MoveSpeed");
-    private readonly int animJump = Animator.StringToHash("Jump");
-    private readonly int animAim = Animator.StringToHash("Aim");
-    private readonly int animMoveVertical = Animator.StringToHash("MoveVertical");
-    private readonly int animMoveHorizontal = Animator.StringToHash("MoveHorizontal");
-
-    [Header("Rotation Model")]
-    [SerializeField] private Transform cameraMain;
-    private Transform model;
-    private float turnSpeed = 10f;
-
-    [Header("Aim mode")]
+    [SerializeField] private Transform cameraPivot;
+    [SerializeField] private Transform cameraMainTransform; // Use transform instead of GameObject
     [SerializeField] private GameObject aimMode;
 
-    // Handle cache
-    private bool jumpThisFrame;
-    private Vector2 moveInput;
-    private bool aimInput;
+    [Header("Settings")]
+    [SerializeField] private float lookSpeed = 150f;
+    [SerializeField] private float turnSpeed = 10f;
+    [SerializeField] private float minPitch = -45f;
+    [SerializeField] private float maxPitch = 70f;
+    
+    // --- Animator Hashes (for performance) ---
+    private readonly int _animMoveSpeed = Animator.StringToHash("MoveSpeed");
+    private readonly int _animJump = Animator.StringToHash("Jump");
+    private readonly int _animAim = Animator.StringToHash("Aim");
+    private readonly int _animMoveVertical = Animator.StringToHash("MoveVertical");
+    private readonly int _animMoveHorizontal = Animator.StringToHash("MoveHorizontal");
 
-    private void Awake()
-    {
-        model = animator.transform;
-    }
+    private float _pitch;
 
     private void OnEnable()
     {
-        PlayerPhysics.OnJumpStarted += HandleJump;
-        PlayerController.OnMoveInput += HandleMoveInput;
-        PlayerController.OnAimInput += HandleAimInput;
+        if (model != null)
+        {
+            model.OnJumped += HandleJumpAnimation;
+        }
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
     }
 
     private void OnDisable()
     {
-        PlayerPhysics.OnJumpStarted -= HandleJump;
-        PlayerController.OnMoveInput -= HandleMoveInput;
-        PlayerController.OnAimInput -= HandleAimInput;
+        if (model != null)
+        {
+            model.OnJumped -= HandleJumpAnimation;
+        }
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
     }
 
-    private void HandleJump() => jumpThisFrame = true;
-    private void HandleMoveInput(Vector2 input) => moveInput = input;
-    private void HandleAimInput(bool isAiming) => aimInput = isAiming;
+    private void Start()
+    {
+        _pitch = cameraPivot.transform.localEulerAngles.x;
+    }
 
     private void LateUpdate()
     {
-        ApplyAnimation();
-        if (aimInput)
+        if (model == null) return;
+
+        UpdateAnimations();
+        UpdateAimModeVisuals();
+        
+        if (!model.IsAiming)
         {
-            EnterAimMode();
-        }
-        else
-        {
-            ExitAimMode();
-            ApplyRotationModel();
+            UpdateModelRotation();
         }
     }
 
-    private void ApplyAnimation()
+    // --- Public method for Controller to call ---
+    public void UpdateLook(Vector2 lookInput)
     {
-        // animator.SetFloat(animMoveSpeed, velocityInput.magnitude);
-        animator.SetFloat(animMoveSpeed, moveInput.magnitude);
-        if (jumpThisFrame)
+        // Update Yaw (Left/Right Look) - Rotates the entire player body
+        transform.Rotate(0, lookInput.x * lookSpeed * Time.deltaTime, 0);
+
+        // Update Pitch (Up/Down Look) - Rotates only the camera pivot
+        _pitch = Mathf.Clamp(_pitch - lookInput.y * lookSpeed * Time.deltaTime, minPitch, maxPitch);
+        cameraPivot.localRotation = Quaternion.Euler(_pitch, 0, 0);
+    }
+    
+    // --- Responding to Model's state ---
+    private void HandleJumpAnimation()
+    {
+        animator.SetTrigger(_animJump);
+    }
+
+    private void UpdateAnimations()
+    {
+        animator.SetFloat(_animMoveSpeed, model.CurrentMoveInput.magnitude);
+        animator.SetBool(_animAim, model.IsAiming);
+        
+        if (model.IsAiming)
         {
-            animator.SetTrigger(animJump);
-            jumpThisFrame = false;
-        }
-        animator.SetBool(animAim, aimInput);
-        if (aimInput)
-        {
-            animator.SetFloat(animMoveHorizontal, moveInput.x);
-            animator.SetFloat(animMoveVertical, moveInput.y);
+            // Update blend tree for strafing animations
+            animator.SetFloat(_animMoveHorizontal, model.CurrentMoveInput.x);
+            animator.SetFloat(_animMoveVertical, model.CurrentMoveInput.y);
         }
     }
 
-    private void ApplyRotationModel()
+    private void UpdateModelRotation()
     {
-        if (moveInput != Vector2.zero)
+        // When not aiming, the model should face the direction of movement
+        if (model.CurrentMoveInput != Vector2.zero)
         {
-            Vector3 camForward = Vector3.ProjectOnPlane(cameraMain.forward, Vector3.up).normalized;
-            Vector3 camRight = Vector3.ProjectOnPlane(cameraMain.right, Vector3.up).normalized;
-            Vector3 moveDir = camForward * moveInput.y + camRight * moveInput.x;
-            model.rotation = Quaternion.Lerp(model.rotation, Quaternion.LookRotation(moveDir), Time.deltaTime * turnSpeed);
+            Vector3 camForward = Vector3.ProjectOnPlane(cameraMainTransform.forward, Vector3.up).normalized;
+            Vector3 camRight = Vector3.ProjectOnPlane(cameraMainTransform.right, Vector3.up).normalized;
+            Vector3 moveDir = camForward * model.CurrentMoveInput.y + camRight * model.CurrentMoveInput.x;
+
+            Transform modelTransform = animator.transform;
+            modelTransform.rotation = Quaternion.Lerp(modelTransform.rotation, Quaternion.LookRotation(moveDir), Time.deltaTime * turnSpeed);
         }
     }
 
-    private void EnterAimMode()
+    private void UpdateAimModeVisuals()
     {
-        if (!aimMode.activeSelf)
-            aimMode.SetActive(true);
-        cameraMain.gameObject.SetActive(false);
-    }
+        bool isAiming = model.IsAiming;
+        if (aimMode.activeSelf != isAiming)
+        {
+            aimMode.SetActive(isAiming);
+            cameraMainTransform.gameObject.SetActive(!isAiming);
+        }
 
-    private void ExitAimMode()
-    {
-        if (aimMode.activeSelf)
-            aimMode.SetActive(false);
-        cameraMain.gameObject.SetActive(true);
+        // When aiming, the model should always face where the camera is looking
+        // if (isAiming)
+        // {
+        //     animator.transform.rotation = Quaternion.Euler(0, transform.eulerAngles.y, 0);
+        // }
     }
 }
