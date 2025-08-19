@@ -3,6 +3,7 @@ using UnityEngine.InputSystem;
 
 public class PlayerController : MonoBehaviour
 {
+    public static PlayerController Instance { get; private set; }
     [Header("Component References")]
     [SerializeField] private PlayerModel model; // Reference to the Model
     [SerializeField] private PlayerView view;   // Reference to the View
@@ -13,10 +14,15 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private InputActionReference aimAction;
     [SerializeField] private InputActionReference lookAction;
 
+    private void Awake()
+    {
+        Instance = this;
+    }
+
     private void Update()
     {
         if (model == null || view == null) return;
-        
+
         // --- Read input and send commands ---
 
         // Tell the Model how to move
@@ -30,7 +36,7 @@ public class PlayerController : MonoBehaviour
 
         // Tell the Model if we are aiming
         model.SetAiming(aimAction.action.IsPressed());
-        
+
         // Tell the View how to orient the camera
         view.UpdateLook(lookAction.action.ReadValue<Vector2>());
     }
